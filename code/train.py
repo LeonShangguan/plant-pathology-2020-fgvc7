@@ -6,6 +6,7 @@ from config import Config
 
 def training(i_fold, model, criterion, optimizer, dataloader_train, dataloader_valid):
     train_fold_results = []
+    best_cv = 0
 
     for epoch in range(Config.epoches):
         print(epoch+1)
@@ -58,7 +59,12 @@ def training(i_fold, model, criterion, optimizer, dataloader_train, dataloader_v
                     val_preds = preds
                 else:
                     val_preds = torch.cat((val_preds, preds), dim=0)
-        print("CV score: {:.4f}".format(roc_auc_score(val_labels, val_preds)))
+        cv_score = roc_auc_score(val_labels, val_preds)
+        print("CV score: {:.4f}".format(cv_score))
+        if cv_score > best_cv:
+            torch.save(model.state_dict(),
+                       '../output/model/{}_epoch{}_fold{}_cv{}.pth'.format(
+                           Config.model_name, Config.epoches, i_fold, cv_score))
 
         train_fold_results.append({
             'fold': i_fold,
@@ -67,7 +73,6 @@ def training(i_fold, model, criterion, optimizer, dataloader_train, dataloader_v
             'valid_loss': val_loss / len(dataloader_valid),
             'valid_score': roc_auc_score(val_labels, val_preds, average='macro'),
         })
-    torch.save(model.state_dict(), 'checkpoint_filepath.pth')
     return val_preds, train_fold_results
 
 
