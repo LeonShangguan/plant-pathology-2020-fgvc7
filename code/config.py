@@ -1,13 +1,26 @@
 from library import *
 SIZE = 512
-MODEL_NAME = ['efficientnet_b7', 'resnet34']
+MODEL_NAME = ['efficientnet_b7', 'resnet34', 'se_resnext101']
 
 
 class Config:
+	# Data Split Config
+	data_path = "../plant-pathology-2020-fgvc7"
+	spilt_save_path = "../output"
+	n_split = 5
+	split_seed = 960630
+	spilt_method = "StratifiedKFold"
 
-	model_name = MODEL_NAME[0]
-	epoches = 25
+	# Training Config
+	model_name = MODEL_NAME[2]
+	epoches = 10
+	batch_size = 16
+	num_workers = 16
+	train_seed = 42
+	model_save_path = "../output"
+	oof_save_path = "../output"
 
+	# Data Augmentation Config
 	transforms_train = A.Compose([
 		# Spatial-level transforms
 		A.RandomResizedCrop(height=SIZE, width=SIZE, p=1.0),

@@ -9,7 +9,8 @@ def load(model, params, skip=[]):
     state_dict = model.state_dict()
     keys = list(state_dict.keys())
     for key in keys:
-        if any(s in key for s in skip): continue
+        if any(s in key for s in skip):
+            continue
         try:
             state_dict[key] = pretrain_state_dict[key]
         except:
@@ -31,7 +32,7 @@ if __name__ == "__main__":
 
     model = PlantModel(num_classes=4)
     model.cuda()
-    model = load(model, 'checkpoint_filepath.pth')
+    model = load(model, '../output/model/efficientnet_b7_epoch10_fold0_cv0.9567975663964774.pth')
 
     print(model)
 

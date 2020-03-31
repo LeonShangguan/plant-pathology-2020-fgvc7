@@ -23,6 +23,11 @@ class PlantModel(nn.Module):
             self.backbone = EfficientNet.from_pretrained('efficientnet-b0')
 
             self.backbone._fc = nn.Linear(1280, num_classes)
+        elif Config.model_name.lower() == 'se_resnext101':
+            self.backbone = ptcv_get_model("seresnext101_32x4d", pretrained=True)
+
+            self.backbone.features.final_pool = nn.AdaptiveAvgPool2d(1)
+            self.backbone.output = nn.Linear(2048, num_classes)
         else:
             raise NotImplementedError
 
@@ -36,11 +41,11 @@ class PlantModel(nn.Module):
 def test_Net():
     print("------------------------testing Net----------------------")
 
-    x = torch.tensor(np.random.random((64, 3, 512, 512)).astype(np.float32)).cuda()
+    x = torch.tensor(np.random.random((8, 3, 512, 512)).astype(np.float32)).cuda()
     model = PlantModel().cuda()
-    print(model)
     print(model.state_dict().keys())
     logits = model(x)
+    print(logits.shape)
     print(logits[0], logits[1], logits[2], logits[3])
     print("------------------------testing Net finished----------------------")
 
@@ -48,6 +53,6 @@ def test_Net():
 
 
 if __name__ == '__main__':
-    # test_Net()
     model = PlantModel()
     print(model)
+    test_Net()
