@@ -20,19 +20,15 @@ def load(model, params, skip=[]):
     return model
 
 
-def inference():
-    pass
-
-
-if __name__ == "__main__":
+def inference(fold):
     test = pd.read_csv('../plant-pathology-2020-fgvc7/sample_submission.csv')
     test.reset_index(drop=True, inplace=True)
     dataset_test = PlantDataset(df=test, transforms=Config.transforms_valid)
-    dataloader_test = DataLoader(dataset_test, batch_size=64, num_workers=16)
+    dataloader_test = DataLoader(dataset_test, batch_size=128, num_workers=16)
 
     model = PlantModel(num_classes=4)
     model.cuda()
-    model = load(model, '../output/model/efficientnet_b7_epoch10_fold0_cv0.9567975663964774.pth')
+    model = load(model, '../output/resnet34/acc_model_{}.pth'.format(fold))
 
     print(model)
 
@@ -53,6 +49,18 @@ if __name__ == "__main__":
             else:
                 test_preds = torch.cat((test_preds, outputs.data.cpu()), dim=0)
 
+    test_preds = torch.softmax(test_preds, dim=1)
+    return test_preds
+
+
+if __name__ == "__main__":
+    test = pd.read_csv('../plant-pathology-2020-fgvc7/sample_submission.csv')
+    test.reset_index(drop=True, inplace=True)
+    results = []
+    for i in range(5):
+        test_preds = inference(i)
+        results.append(test_preds)
     # Save predictions per fold
-    test[['healthy', 'multiple_diseases', 'rust', 'scab']] = torch.softmax(test_preds, dim=1)
-    test.to_csv('submission_fold_{}.csv'.format(0), index=False)
+    result = (results[0]+results[1]+results[2]+results[3]+results[4])/5
+    test[['healthy', 'multiple_diseases', 'rust', 'scab']] = result
+    test.to_csv('{}.csv'.format(Config.model_name), index=False)

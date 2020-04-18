@@ -1,18 +1,137 @@
 from library import *
-from dataset import PlantDataset, get_train_val_split
-from model import PlantModel
-from config import Config
+from dataset import *
+from criterion import *
+from scheduler import *
+from utils import *
+from model import *
+from optimizer import *
 
 DEBUG = False
 
 
-def training(i_fold):
-    if DEBUG:
-        print(
-        os.path.join(Config.spilt_save_path,
-                     'split/{}/train_fold_{}_seed_{}.csv'.
-                     format(Config.spilt_method, i_fold, Config.split_seed)))
+def train_model(model,
+                optimizer,
+                scheduler,
+                data_loader,
+                criterion,
+                accumulate):
+    model.train()
+    avg_loss = 0
+    optimizer.zero_grad()
 
+    for step, (images, labels) in enumerate(data_loader):
+        images, labels = images.cuda(), labels.cuda()
+
+        output_train = model(images)
+
+        loss = criterion(output_train, labels.squeeze(-1))
+
+        with amp.scale_loss(loss/accumulate, optimizer) as scaled_loss:
+            scaled_loss.backward()
+
+        if (step+1) % accumulate == 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0, norm_type=2)
+            optimizer.step()
+            optimizer.zero_grad()
+            # scheduler.step()
+
+        avg_loss += loss.item() / len(data_loader)
+    return avg_loss
+
+
+def test_model(model,
+               criterion,
+               data_loader,
+               mode='test'):
+    val_preds = None
+    val_labels = None
+    avg_val_loss = 0.
+
+    model.eval()
+
+    with torch.no_grad():
+        for step, (images, labels) in enumerate(data_loader):
+            images, labels = images.cuda(), labels.cuda()
+
+            if val_labels is None:
+                val_labels = labels.clone().squeeze(-1)
+            else:
+                val_labels = torch.cat((val_labels, labels.squeeze(-1)), dim=0)
+
+            outputs = model(images)
+
+            avg_val_loss += (criterion(outputs, labels.squeeze(-1)).item() / len(data_loader))
+
+            if val_preds is None:
+                val_preds = outputs
+            else:
+                val_preds = torch.cat((val_preds, outputs), dim=0)
+
+    val_labels, val_preds = (val_labels.data.cpu()).data.numpy(), (val_preds.data.cpu()).data.numpy()
+
+    acc = cal_score(val_labels, val_preds)
+
+    if mode == 'oof':
+        return val_labels, val_preds
+    else:
+        return avg_val_loss, acc
+
+
+def train_fold(
+        fold,
+        model,
+        epochs,
+        optimizer,
+        scheduler,
+        data_loader_train,
+        data_loader_valid,
+        criterion,
+        accumulate):
+    print('fold:{}, model:{}, accumulate:{}'.format(fold, Config.model_name, accumulate))
+    best_avg_loss = 100.0
+    best_acc = 0.0
+
+    ### training
+    for epoch in range(epochs):
+        print('epoch:{}, lr:{}'.format(epoch, scheduler.get_lr()[0]))
+        scheduler.step()
+
+        start_time = time.time()
+        avg_loss = train_model(model,
+                               optimizer,
+                               scheduler,
+                               data_loader_train,
+                               criterion,
+                               accumulate)
+        avg_val_loss, acc = test_model(model,
+                                       criterion,
+                                       data_loader_valid)
+        elapsed_time = time.time() - start_time
+        print('Epoch {}/{} \t loss={:.4f} \t val_loss={:.4f} \t val_overall_acc={:.4f} \t'
+               'val_healthy={:.4f}, val_multi={:.4f}, val_rust={:.4f}, val_scab={:.4f},'
+               'time={:.2f}s'.format(epoch + 1, epochs, avg_loss, avg_val_loss, acc[0],
+                                     acc[1], acc[2], acc[3], acc[4], elapsed_time))
+
+        if avg_val_loss < best_avg_loss:
+            best_avg_loss = avg_val_loss
+            torch.save(model.state_dict(), '../output/{}/loss_model_{}.pth'.format(
+                Config.model_name, str(fold)))
+            print('Best Loss model saved!')
+
+        if acc[0] > best_acc:
+            best_acc = acc[0]
+            torch.save(model.state_dict(), '../output/{}/acc_model_{}.pth'.format(
+                Config.model_name, str(fold)))
+            print('Best Acc model saved!')
+
+        print('=================================')
+
+    print('best loss:', best_avg_loss, 'best accuracy:', best_acc)
+
+    return best_avg_loss, best_acc
+
+
+def training(i_fold):
     train = pd.read_csv(os.path.join(Config.spilt_save_path,
                                      'split/{}/train_fold_{}_seed_{}.csv'.
                                      format(Config.spilt_method, i_fold, Config.split_seed)))
@@ -31,128 +150,52 @@ def training(i_fold):
 
     model = PlantModel(num_classes=4)
     model.cuda()
-    if DEBUG:
-        print(next(model.parameters()).is_cuda)
 
     criterion = DenseCrossEntropy()
 
-    param_optimizer = list(model.named_parameters())
-    no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
-    lr = 0.00005
-    WEIGHT_DECAY = 0.00001
-    optimizer_grouped_parameters = [
-        {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)],
-         'lr': lr,
-         'weight_decay': WEIGHT_DECAY},
-        {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)],
-         'lr': lr,
-         'weight_decay': 0.0}
-    ]
+    # optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
+    optimizer = optim.Adam(model.parameters(), lr=5e-5, weight_decay=1e-4)
 
-    optimizer = optim.Adam(optimizer_grouped_parameters)
+    ############         SCHEDULER        ##############
+    # T = len(dataloader_train) // 4 * 10  # cycle
+    # scheduler = CosineAnnealingWarmUpRestarts(
+    #     optimizer, T_0=T, T_mult=2, eta_max=1e-5, T_up=T // 10, gamma=0.2)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [3, 6, 10, 15, 75], gamma=0.25)
 
-    train_fold_results = []
-    best_cv = 0
+    model, optimizer = amp.initialize(model, optimizer, opt_level="O1", verbosity=0)
 
-    for epoch in range(Config.epoches):
-        print(epoch+1)
-        model.train()
-        tr_loss = 0
+    best = train_fold(i_fold,
+                      model,
+                      Config.epoches,
+                      optimizer,
+                      scheduler,
+                      dataloader_train,
+                      dataloader_valid,
+                      criterion,
+                      Config.accumulate)
 
-        for step, batch in enumerate(dataloader_train):
-            images = batch[0]
-            labels = batch[1]
-
-            images = images.cuda()
-            labels = labels.cuda()
-
-            outputs = model(images)
-
-
-            loss = criterion(outputs, labels.squeeze(-1))
-            loss.backward()
-
-            tr_loss += loss.item()
-
-            optimizer.step()
-            optimizer.zero_grad()
-
-            if (step+1) % 10 == 0:
-                _labels = (labels.data.cpu()).squeeze(-1).data.numpy()
-                _prediction = (outputs.data.cpu()).data.numpy()
-                try:
-                    score = cal_score(_labels, _prediction)
-                    print('Training step:{}, loss:{:.3f}, metrics:{:.3f}, healthy:{:.3f}, multiple:{:.3f}, rust:{:.3f}, scab:{:.3f}'.
-                          format(step+1, tr_loss/(step+1), score[0], score[1], score[2], score[3], score[4]))
-                except ValueError:
-                    pass
-
-        # Validate
-        model.eval()
-        val_loss = 0
-        val_preds = None
-        val_labels = None
-
-        for step, batch in enumerate(dataloader_valid):
-
-            images = batch[0]
-            labels = batch[1]
-
-            if val_labels is None:
-                val_labels = labels.clone().squeeze(-1)
-            else:
-                val_labels = torch.cat((val_labels, labels.squeeze(-1)), dim=0)
-
-            images = images.cuda()
-            labels = labels.cuda()
-
-            with torch.no_grad():
-                outputs = model(images)
-
-                loss = criterion(outputs, labels.squeeze(-1))
-                val_loss += loss.item()
-
-                if val_preds is None:
-                    val_preds = outputs
-                else:
-                    val_preds = torch.cat((val_preds, outputs), dim=0)
-
-        val_labels, val_preds = val_labels.data.numpy(), (val_preds.data.cpu()).data.numpy()
-        print(val_preds)
-        cv_score = cal_score(val_labels, val_preds)
-        print('Validation epoch:{}, val_loss:{:.3f}, metrics:{:.3f}, healthy:{:.3f}, multiple:{:.3f}, rust:{:.3f}, scab:{:.3f}'.
-              format(epoch + 1, val_loss / dataloader_valid.__len__(),
-                     cv_score[0], cv_score[1], cv_score[2], cv_score[3], cv_score[4]))
-
-        if cv_score[0] > best_cv:
-            print('scores improve from {:.3f} to {:.3f}, save model!'.format(best_cv, cv_score[0]))
-            if best_cv != 0:
-                os.remove(os.path.join(Config.model_save_path,
-                                        'model/{}_epoch{}_fold{}_cv{}.pth'.format(
-                                        Config.model_name, Config.epoches, i_fold, best_cv)))
-
-            torch.save(model.state_dict(),
-                       os.path.join(Config.model_save_path,
-                                    'model/{}_epoch{}_fold{}_cv{}.pth'.format(
-                                    Config.model_name, Config.epoches, i_fold, cv_score[0])))
-            best_cv = cv_score[0]
-        else:
-            print('scores does not improve, best cv score:{:.3f}'.format(best_cv))
-
+    oof_label, oof_pred = test_model(model,
+                                     criterion,
+                                     dataloader_valid,
+                                     'oof')
+    print(oof_pred.shape)
     # Save oof
-    oof_preds = pd.DataFrame(val_preds)
-    oof_preds.to_csv(os.path.join(Config.oof_save_path, 'oof/oof_fold_{}_seed_{}.csv'.
-                                  format(i_fold, Config.split_seed)))
+    df = pd.DataFrame({'label': list(oof_label), 'pred': list(oof_pred)})
+    df.to_csv(os.path.join(Config.oof_save_path,
+                           'oof/{}_fold_{}_seed_{}.csv'.format(
+                               Config.model_name, i_fold, Config.split_seed)))
 
-    return val_preds, train_fold_results
+    return oof_pred
 
 
 if __name__ == '__main__':
+    os.makedirs('../output/{}'.format(Config.model_name), exist_ok=True)
     get_train_val_split(df_path=os.path.join(Config.data_path, "train.csv"),
                         save_path=Config.spilt_save_path,
                         n_splits=Config.n_split,
                         seed=Config.split_seed,
                         split=Config.spilt_method)
     seed_everything(Config.train_seed)
-    val_preds, train_fold_results = training(0)
+    for i in range(5):
+        oof_preds = training(i)
 

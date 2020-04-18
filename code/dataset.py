@@ -56,8 +56,8 @@ def get_train_val_split(df_path="../plant-pathology-2020-fgvc7/train.csv",
         df_train = df.iloc[train_idx]
         df_val = df.iloc[valid_idx]
 
-        df_train.to_csv(save_path + 'split/' + split + '/train_fold_%s_seed_%s.csv' % (fold, seed))
-        df_val.to_csv(save_path + 'split/' + split + '/val_fold_%s_seed_%s.csv' % (fold, seed))
+        df_train.to_csv(save_path + '/split/' + split + '/train_fold_%s_seed_%s.csv' % (fold, seed))
+        df_val.to_csv(save_path + '/split/' + split + '/val_fold_%s_seed_%s.csv' % (fold, seed))
 
     return
 
