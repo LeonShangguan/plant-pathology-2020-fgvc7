@@ -39,7 +39,7 @@ from config import *
 ############################################################################## Define Argument
 parser = argparse.ArgumentParser(description="arg parser")
 parser.add_argument('--fold', type=int, default=0, required=False, help="specify the fold for training")
-parser.add_argument('--model_type', type=str, default="efficientnet_b7", required=False, help="specify the model type")
+parser.add_argument('--model_type', type=str, default="se_resnext50", required=False, help="specify the model type")
 parser.add_argument('--seed', type=int, default=2020, required=False, help="specify the seed")
 parser.add_argument('--batch_size', type=int, default=16, required=False, help="specify the batch size")
 parser.add_argument('--accumulation_steps', type=int, default=1, required=False, help="specify the accumulation_steps")
@@ -198,8 +198,8 @@ class Plant():
                                                              num_training_steps=num_train_optimization_steps)
             self.lr_scheduler_each_iter = True
         elif self.config.lr_scheduler_name == "ReduceLROnPlateau":
-            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.6,
-                                                                        patience=1, min_lr=1e-7)
+            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='max', factor=0.6,
+                                                                        patience=2, min_lr=1e-7)
             self.lr_scheduler_each_iter = False
         else:
             raise NotImplementedError
@@ -329,7 +329,7 @@ class Plant():
             torch.cuda.empty_cache()
             self.model.zero_grad()
 
-            for tr_batch_i, (image, label) in enumerate(self.train_data_loader):
+            for tr_batch_i, (image, _, label) in enumerate(self.train_data_loader):
 
                 rate = 0
                 for param_group in self.optimizer.param_groups:
@@ -341,9 +341,8 @@ class Plant():
                 # set input to cuda mode
                 image = image.to(self.config.device)
                 label = label.to(self.config.device)
-
                 prediction = self.model(image)
-                loss = DenseCrossEntropy()(prediction, label)
+                loss = LSR()(prediction, label)
 
                 # use apex
                 if self.config.apex:
@@ -386,7 +385,7 @@ class Plant():
 
                 # translate to predictions
                 prediction = prediction.detach().cpu().numpy()
-                label= label.detach().cpu().numpy()
+                label = label.detach().cpu().numpy()
 
                 metrics = cal_score_train(label, prediction)
                 # running mean
@@ -424,23 +423,25 @@ class Plant():
         self.eval_prediction = None
         self.eval_prediction_softmax = None
         self.eval_label = None
+        self.eval_onehot_label = None
 
         with torch.no_grad():
 
             # init cache
             torch.cuda.empty_cache()
 
-            for val_batch_i, (image, label) in enumerate(self.val_data_loader):
+            for val_batch_i, (image, onehot_label, label) in enumerate(self.val_data_loader):
 
                 # set model to eval mode
                 self.model.eval()
 
                 # set input to cuda mode
                 image = image.to(self.config.device)
+                onehot_label = onehot_label.to(self.config.device)
                 label = label.to(self.config.device)
 
                 prediction = self.model(image)
-                loss = DenseCrossEntropy()(prediction, label)
+                loss = nn.CrossEntropyLoss()(prediction, label)
 
                 self.writer.add_scalar('val_loss_' + str(self.config.fold), loss.item(), (self.eval_count - 1) * len(
                     self.val_data_loader) * self.config.val_batch_size + val_batch_i * self.config.val_batch_size)
@@ -449,6 +450,7 @@ class Plant():
                 prediction_softmax = torch.softmax(prediction, dim=1).detach().cpu().numpy()
                 prediction = prediction.detach().cpu().numpy()
                 label = label.detach().cpu().numpy()
+                onehot_label = onehot_label.detach().cpu().numpy()
 
                 if self.eval_prediction is None:
                     self.eval_prediction = prediction
@@ -466,12 +468,18 @@ class Plant():
                 else:
                     self.eval_label = np.concatenate([self.eval_label, label], axis=0)
 
+                if self.eval_onehot_label is None:
+                    self.eval_onehot_label = onehot_label
+                else:
+                    self.eval_onehot_label = np.concatenate([self.eval_onehot_label, onehot_label], axis=0)
+
                 l = np.array([loss.item() * self.config.val_batch_size])
                 n = np.array([self.config.val_batch_size])
                 valid_loss = valid_loss + l
                 valid_num = valid_num + n
 
-            self.eval_metrics = cal_score(self.eval_label, self.eval_prediction, self.eval_prediction_softmax)
+            self.eval_metrics = cal_score(self.eval_onehot_label, self.eval_label, self.eval_prediction,
+                                          self.eval_prediction_softmax)
 
             valid_loss = valid_loss / valid_num
             mean_eval_metric = self.eval_metrics[5]
@@ -504,14 +512,14 @@ class Plant():
         # save csv
         submission = pd.read_csv(os.path.join(self.config.data_path, "sample_submission.csv"))
 
-        all_results = np.zeros_like(len(submission), 4)
+        all_results = np.zeros((len(submission), 4))
 
         with torch.no_grad():
 
             # init cache
             torch.cuda.empty_cache()
 
-            for test_batch_i, (image, _) in enumerate(self.test_data_loader):
+            for test_batch_i, (image, _, _) in enumerate(self.test_data_loader):
 
                 # set model to eval mode
                 self.model.eval()
@@ -521,14 +529,16 @@ class Plant():
 
                 prediction = self.model(image)
                 prediction_softmax = torch.softmax(prediction, dim=1).detach().cpu().numpy()
+                # prediction_softmax = prediction.detach().cpu().numpy()
 
                 all_results[test_batch_i * self.config.val_batch_size : (test_batch_i+1) * self.config.val_batch_size] \
                     = prediction_softmax
 
         for i in range(len(submission)):
-            submission['healthy', 'multiple_diseases', 'rust', 'scab'] = all_results
+            submission[['healthy', 'multiple_diseases', 'rust', 'scab']] = all_results
 
-        submission.to_csv(os.path.join(self.config.checkpoint_folder, "submission_{}.csv".format(self.config.fold)))
+        submission.to_csv(os.path.join(self.config.checkpoint_folder, "submission_{}.csv".format(self.config.fold)),
+                          index=False)
 
         return
 
@@ -541,6 +551,6 @@ if __name__ == "__main__":
                     accumulation_steps=args.accumulation_steps)
     seed_everything(config.seed)
     qa = Plant(config)
-    qa.train_op()
+    # qa.train_op()
     # qa.evaluate_op()
-    # qa.infer_op()
+    qa.infer_op()

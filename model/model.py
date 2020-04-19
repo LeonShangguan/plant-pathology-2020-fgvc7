@@ -45,6 +45,7 @@ class PlantModel(nn.Module):
 
             self.backbone = ptcv_get_model("resnet34", pretrained=True)
             self.feature_size = 512
+            self.backbone.features.final_pool = Identity()
 
         elif model_name.lower() == 'efficientnet_b7':
 
@@ -55,16 +56,25 @@ class PlantModel(nn.Module):
 
             self.backbone = ptcv_get_model("seresnext101_32x4d", pretrained=True)
             self.feature_size = 2048
+            self.backbone.features.final_pool = Identity()
+
+        elif model_name.lower() == "se_resnext50":
+
+            self.backbone = ptcv_get_model("seresnext50_32x4d", pretrained=True)
+            self.feature_size = 2048
+            self.backbone.features.final_pool = Identity()
 
         elif model_name.lower() == 'inceptionresnetv2':
 
             self.backbone = ptcv_get_model("inceptionresnetv2", pretrained=True)
             self.feature_size = 1536
+            self.backbone.features.final_pool = Identity()
 
         elif model_name.lower() == 'pnasnet5large':
 
             self.backbone = ptcv_get_model("pnasnet5large", pretrained=True)
             self.feature_size = 4320
+            self.backbone.features.final_pool = Identity()
 
         else:
             raise NotImplementedError
@@ -74,7 +84,6 @@ class PlantModel(nn.Module):
         self.dropouts = nn.ModuleList([
             nn.Dropout(0.5) for _ in range(5)
         ])
-        self.activation = Mish()
         self.fc = nn.Linear(512, self.num_classes)
 
     def get_logits_by_random_dropout(self, fuse_hidden, fc):
@@ -85,9 +94,9 @@ class PlantModel(nn.Module):
         for j, dropout in enumerate(self.dropouts):
 
             if j == 0:
-                logit = self.activation(fc(dropout(h)))
+                logit = fc(dropout(h))
             else:
-                logit += self.activation(fc(dropout(h)))
+                logit += fc(dropout(h))
 
         return logit / len(self.dropouts)
 

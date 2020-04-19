@@ -1,7 +1,10 @@
 import os
+from utils.augmentation import *
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
+def pre_trans(x, cols, rows):
+    return (x * 2.0 - 1.0)
 
 class Config:
     # config settings
@@ -47,13 +50,13 @@ class Config:
         self.adam_epsilon = 1e-8
         self.max_grad_norm = 2
         # lr scheduler, can choose to use proportion or steps
-        self.lr_scheduler_name = 'WarmCosineAnealingRestart'
-        self.warmup_proportion = 0.005
-        self.warmup_steps = 500
+        self.lr_scheduler_name = 'WarmupCosineAnealing'
+        self.warmup_proportion = 0
+        self.warmup_steps = 0
         # lr
-        self.lr = 4e-5
-        self.weight_decay = 0.001
-        self.min_lr = 4e-5
+        self.lr = 5e-5
+        self.weight_decay = 0.0001
+        self.min_lr = 5e-5
         # dataloader settings
         self.batch_size = batch_size
         self.val_batch_size = 32
@@ -67,7 +70,7 @@ class Config:
         # saving rate
         self.saving_rate = 1
         # early stopping
-        self.early_stopping = 5 / self.saving_rate
+        self.early_stopping = 7 / self.saving_rate
         # progress rate
         self.progress_rate = 1/10
         # transform
@@ -76,7 +79,7 @@ class Config:
         self.transforms = A.Compose([
             # Spatial-level transforms
             A.OneOf([
-                # A.RandomResizedCrop(height=self.HEIGHT, width=self.WIDTH, p=1.0),
+                A.RandomResizedCrop(height=self.HEIGHT, width=self.WIDTH, p=1.0),
                 A.CenterCrop(height=self.HEIGHT, width=self.WIDTH, p=1.0),
                 A.Resize(height=self.HEIGHT, width=self.WIDTH, p=1.0),
             ], p=1),
@@ -87,10 +90,13 @@ class Config:
 
             A.VerticalFlip(p=0.5),
             A.HorizontalFlip(p=0.5),
+
             A.OneOf([
                 A.ElasticTransform(p=1.0),
-                A.IAAPiecewiseAffine(p=1.0)
+                A.IAAPiecewiseAffine(p=1.0),
+                GridMask(num_grid=(3, 7), p=1),
             ], p=0.5),
+
             A.OneOf([
                 A.RandomBrightnessContrast(0.15, p=1),
                 A.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=20, p=1),
@@ -101,40 +107,15 @@ class Config:
                 A.IAASharpen(alpha=(0.1, 0.3), lightness=(0.5, 1.0)),
             ], p=0.5),
 
-            # A.Lambda(image=pre_trans),
-            # ToTensorV2(),
-            # A.OneOf([
-            # 	A.ElasticTransform(p=1.0),
-            # 	A.IAAPiecewiseAffine(p=1.0)
-            # ], p=0.5),
-            #
-            # # Pixel-level transforms
-            # A.OneOf([
-            # 	A.IAAEmboss(p=1.0),
-            # 	A.IAASharpen(p=1.0),
-            # 	A.Blur(p=1.0),
-            # 	A.MedianBlur(p=1.0),
-            # 	A.MotionBlur(p=1.0),
-            # ], p=0.5),
-            #
-            # A.OneOf([
-            # 	A.IAAAdditiveGaussianNoise(p=1.0),
-            # 	A.RandomGamma(p=1.0),
-            # 	A.CLAHE(p=1.0),
-            # 	A.RandomBrightnessContrast(p=1.0),
-            # ], p=0.5),
-
-            # Normalize, mean & std calculated by EDA. Channel BGR.
-            # A.Normalize(p=1),
-            A.Normalize(mean=(0.40379888, 0.5128721, 0.31294255), std=(0.20503741, 0.18957737, 0.1883159), p=1.0),
+            # A.Normalize(mean=(0.40379888, 0.5128721, 0.31294255), std=(0.20503741, 0.18957737, 0.1883159), p=1.0),
+            A.Lambda(image=pre_trans),
             ToTensorV2(p=1.0),
         ])
 
         self.val_transforms = A.Compose([
             # Normalize, mean & std calculated by EDA. Channel BGR.
             A.Resize(height=self.HEIGHT, width=self.WIDTH, p=1.0),
-            # A.Normalize(p=1),
-            # A.Normalize(mean=(0.313, 0.513, 0.404), std=(0.173, 0.176, 0.191), p=1.0),
-            A.Normalize(mean=(0.40379888, 0.5128721, 0.31294255), std=(0.20503741, 0.18957737, 0.1883159), p=1.0),
+            # A.Normalize(mean=(0.40379888, 0.5128721, 0.31294255), std=(0.20503741, 0.18957737, 0.1883159), p=1.0),
+            A.Lambda(image=pre_trans),
             ToTensorV2(p=1.0),
         ])

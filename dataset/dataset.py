@@ -52,13 +52,14 @@ class PlantDataset(Dataset):
         image_src = os.path.join(self.data_path, 'images/{}.jpg'.format(self.df.loc[idx, 'image_id']))
         image = cv2.imread(image_src)
         labels = self.labels[idx]
-        labels = torch.from_numpy(labels.astype(np.int8))
+        onehot_labels = torch.from_numpy(labels.astype(np.int8))
+        labels = np.argmax(onehot_labels)
 
         if self.transforms is not None:
             transformed = self.transforms(image=image)
             image = transformed['image']
 
-        return image, labels
+        return image, onehot_labels, labels
 
 
 ############################################ Define getting data split functions
