@@ -15,8 +15,8 @@ class Config:
 	model_name = MODEL_NAME[1]
 	epoches = 30
 	batch_size = 32
-	num_workers = 16
-	accumulate = 4
+	num_workers = 8
+	accumulate = 2
 	train_seed = 42
 	model_save_path = "../output"
 	oof_save_path = "../output"

@@ -33,7 +33,7 @@ def get_train_val_split(df_path="../plant-pathology-2020-fgvc7/train.csv",
                         n_splits=5,
                         seed=960630,
                         split="StratifiedKFold"):
-    os.makedirs(save_path + 'split/' + split, exist_ok=True)
+    os.makedirs(save_path + '/split/' + split, exist_ok=True)
     df = pd.read_csv(df_path, encoding='utf8')
     df['label'] = 0*df['healthy'] + 1*df['multiple_diseases']+2*df['rust']+3*df['scab']
 

@@ -33,7 +33,7 @@ def train_model(model,
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0, norm_type=2)
             optimizer.step()
             optimizer.zero_grad()
-            # scheduler.step()
+            scheduler.step()
 
         avg_loss += loss.item() / len(data_loader)
     return avg_loss
@@ -94,7 +94,7 @@ def train_fold(
     ### training
     for epoch in range(epochs):
         print('epoch:{}, lr:{}'.format(epoch, scheduler.get_lr()[0]))
-        scheduler.step()
+        # scheduler.step()
 
         start_time = time.time()
         avg_loss = train_model(model,
@@ -153,14 +153,16 @@ def training(i_fold):
 
     criterion = DenseCrossEntropy()
 
-    # optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
-    optimizer = optim.Adam(model.parameters(), lr=5e-5, weight_decay=1e-4)
+    optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
+
+    # optimizer = optim.Adam(model.parameters(), lr=5e-5, weight_decay=1e-4)
+    # optimizer = optim.SGD(model.parameters(), lr=0.005, momentum=0.9, weight_decay=0.00005)
 
     ############         SCHEDULER        ##############
-    # T = len(dataloader_train) // 4 * 10  # cycle
-    # scheduler = CosineAnnealingWarmUpRestarts(
-    #     optimizer, T_0=T, T_mult=2, eta_max=1e-5, T_up=T // 10, gamma=0.2)
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [3, 6, 10, 15, 75], gamma=0.25)
+    T = len(dataloader_train) // 4 * 10  # cycle
+    scheduler = CosineAnnealingWarmUpRestarts(
+        optimizer, T_0=T, T_mult=2, eta_max=1e-5, T_up=T // 10, gamma=0.2)
+    # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [3, 6, 10, 15, 75], gamma=0.25)
 
     model, optimizer = amp.initialize(model, optimizer, opt_level="O1", verbosity=0)
 

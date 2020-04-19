@@ -79,7 +79,6 @@ class PlantModel(nn.Module):
     def forward(self, x):
 
         x = self.backbone(x)
-        x = F.softmax(x)
 
         return x
 
