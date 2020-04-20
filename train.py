@@ -218,6 +218,7 @@ class Plant():
         checkpoint_to_load = torch.load(self.config.load_point, map_location=self.config.device)
         self.step = checkpoint_to_load['step']
         self.epoch = checkpoint_to_load['epoch']
+        self.valid_metric_optimal = checkpoint_to_load['valid_metric_optimal']
 
         model_state_dict = checkpoint_to_load['model']
         if self.config.load_from_load_from_data_parallel:
@@ -253,6 +254,7 @@ class Plant():
         checkpoint_to_save = {
             'step': self.step,
             'epoch': self.epoch,
+            'valid_metric_optimal': self.valid_metric_optimal,
             'model': self.model.state_dict(),
             'optimizer': self.optimizer.state_dict()}
 
@@ -429,7 +431,6 @@ class Plant():
 
             # init cache
             torch.cuda.empty_cache()
-
             for val_batch_i, (image, onehot_label, label) in enumerate(self.val_data_loader):
 
                 # set model to eval mode
@@ -504,6 +505,15 @@ class Plant():
 
             self.count = 0
 
+            val_df = pd.DataFrame({'healthy': self.eval_prediction_softmax[:, 0],
+                                   'multiple_diseases': self.eval_prediction_softmax[:, 1],
+                                   'rust': self.eval_prediction_softmax[:, 2],
+                                   'scab': self.eval_prediction_softmax[:, 3]})
+            val_df.to_csv(
+                os.path.join(self.config.checkpoint_folder, "val_prediction_{}_{}.csv".format(self.config.seed,
+                                                                                              self.config.fold)),
+                index=False)
+
         else:
             self.count += 1
 
@@ -534,12 +544,36 @@ class Plant():
                 all_results[test_batch_i * self.config.val_batch_size : (test_batch_i+1) * self.config.val_batch_size] \
                     = prediction_softmax
 
-        for i in range(len(submission)):
-            submission[['healthy', 'multiple_diseases', 'rust', 'scab']] = all_results
+
+        submission[['healthy', 'multiple_diseases', 'rust', 'scab']] = all_results
 
         submission.to_csv(os.path.join(self.config.checkpoint_folder, "submission_{}.csv".format(self.config.fold)),
                           index=False)
 
+        return
+
+    def ensemble_op(self, models=None, seeds=None):
+        # save csv
+        if models is None:
+            models = []
+        if seeds is None:
+            seeds = []
+        submission = pd.read_csv(os.path.join(self.config.data_path, "sample_submission.csv"))
+        prediction = np.zeros((len(submission), 4))
+
+        for i, model in enumerate(models):
+
+            seed = seeds[i]
+
+            for fold in range(5):
+                file_folder = os.path.join("/media/jionie/my_disk/Kaggle/Plant/model", model + "/seed_{}".format(seed)
+                                           + "/fold_{}".format(fold))
+                file_path = os.path.join(file_folder, "submission_{}.csv".format(fold))
+                file = pd.read_csv(file_path)
+                prediction += file[['healthy', 'multiple_diseases', 'rust', 'scab']].values / (len(models) * 5)
+
+        submission[['healthy', 'multiple_diseases', 'rust', 'scab']] = prediction
+        submission.to_csv("submission.csv", index=False)
         return
 
 
@@ -551,6 +585,7 @@ if __name__ == "__main__":
                     accumulation_steps=args.accumulation_steps)
     seed_everything(config.seed)
     qa = Plant(config)
-    # qa.train_op()
+    qa.train_op()
     # qa.evaluate_op()
-    qa.infer_op()
+    # qa.infer_op()
+    # qa.ensemble_op(models=["efficientnet_b5", "se_resnext50"], seeds=[1996, 1997])

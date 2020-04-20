@@ -52,6 +52,11 @@ class PlantModel(nn.Module):
             self.backbone = EfficientNet.from_pretrained('efficientnet-b7')
             self.feature_size = 2560
 
+        elif model_name.lower() == 'efficientnet_b5':
+
+            self.backbone = EfficientNet.from_pretrained('efficientnet-b5', advprop=True)
+            self.feature_size = 2048
+
         elif model_name.lower() == 'se_resnext101':
 
             self.backbone = ptcv_get_model("seresnext101_32x4d", pretrained=True)
