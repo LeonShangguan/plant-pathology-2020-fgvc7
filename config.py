@@ -48,15 +48,15 @@ class Config:
         # optimizer
         self.optimizer_name = "AdamW"
         self.adam_epsilon = 1e-8
-        self.max_grad_norm = 2
+        self.max_grad_norm = 5
         # lr scheduler, can choose to use proportion or steps
-        self.lr_scheduler_name = 'WarmupCosineAnealing'
+        self.lr_scheduler_name = 'WarmCosineAnealingRestart-v2'
         self.warmup_proportion = 0
         self.warmup_steps = 0
         # lr
-        self.lr = 5e-5
-        self.weight_decay = 0.0001
-        self.min_lr = 5e-5
+        self.lr = 4e-5
+        self.weight_decay = 1e-4
+        self.min_lr = 4e-5
         # dataloader settings
         self.batch_size = batch_size
         self.val_batch_size = 32
@@ -66,11 +66,11 @@ class Config:
         # gradient accumulation
         self.accumulation_steps = accumulation_steps
         # epochs
-        self.num_epoch = 30
+        self.num_epoch = 40
         # saving rate
         self.saving_rate = 1
         # early stopping
-        self.early_stopping = 7 / self.saving_rate
+        self.early_stopping = 15 / self.saving_rate
         # progress rate
         self.progress_rate = 1/10
         # transform
@@ -79,26 +79,20 @@ class Config:
         self.transforms = A.Compose([
             # Spatial-level transforms
             A.OneOf([
-                A.RandomResizedCrop(height=self.HEIGHT, width=self.WIDTH, p=1.0),
-                A.CenterCrop(height=self.HEIGHT, width=self.WIDTH, p=1.0),
-                A.Resize(height=self.HEIGHT, width=self.WIDTH, p=1.0),
-            ], p=1),
+                A.RandomResizedCrop(height=self.HEIGHT, width=self.WIDTH, scale=(0.6, 1.0), ratio=(0.8, 1.25), p=0.5),
+                A.CenterCrop(height=self.HEIGHT, width=self.WIDTH, p=0.5),
+            ], p=0.5),
+
+            A.Resize(height=self.HEIGHT, width=self.WIDTH, p=1.0),
 
             A.RandomRotate90(p=0.5),
             A.Transpose(p=0.5),
-            A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1, border_mode=1, rotate_limit=45, p=0.8),
-
-            A.VerticalFlip(p=0.5),
-            A.HorizontalFlip(p=0.5),
+            A.Flip(p=0.5),
+            A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0.2, rotate_limit=45, border_mode=1, p=0.5),
 
             A.OneOf([
-                A.ElasticTransform(p=1.0),
-                A.IAAPiecewiseAffine(p=1.0),
-                GridMask(num_grid=(3, 7), p=1),
-            ], p=0.5),
-
-            A.OneOf([
-                A.RandomBrightnessContrast(0.15, p=1),
+                A.RandomBrightness(0.15, p=1),
+                A.RandomContrast(0.15, p=1),
                 A.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=20, p=1),
             ], p=0.5),
 

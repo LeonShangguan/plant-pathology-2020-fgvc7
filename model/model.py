@@ -84,12 +84,14 @@ class PlantModel(nn.Module):
         else:
             raise NotImplementedError
 
-        self.avg_poolings = AdaptiveConcatPool2d()
-        self.tail = nn.Sequential(nn.Linear(self.feature_size * 2, 512), Mish())
+        # self.avg_poolings = AdaptiveConcatPool2d()
+        self.avg_poolings = nn.AdaptiveAvgPool2d(1)
+        # self.tail = nn.Sequential(nn.Linear(self.feature_size * 2, 256), Mish())
+        self.tail = nn.Sequential(nn.Linear(self.feature_size, 256), Mish())
         self.dropouts = nn.ModuleList([
-            nn.Dropout(0.5) for _ in range(5)
+            nn.Dropout(0.5) for _ in range(1)
         ])
-        self.fc = nn.Linear(512, self.num_classes)
+        self.fc = nn.Linear(256, self.num_classes)
 
     def get_logits_by_random_dropout(self, fuse_hidden, fc):
 

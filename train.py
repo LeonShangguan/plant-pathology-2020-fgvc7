@@ -165,7 +165,7 @@ class Plant():
         elif self.config.optimizer_name == "Ranger":
             self.optimizer = Ranger(self.optimizer_grouped_parameters)
         elif self.config.optimizer_name == "AdamW":
-            self.optimizer = AdamW(self.optimizer_grouped_parameters, eps=self.config.adam_epsilon)
+            self.optimizer = torch.optim.AdamW(self.optimizer_grouped_parameters, eps=self.config.adam_epsilon)
         elif self.config.optimizer_name == "FusedAdam":
             self.optimizer = FusedAdam(self.optimizer_grouped_parameters,
                                        bias_correction=False)
@@ -179,6 +179,11 @@ class Plant():
             self.scheduler = get_cosine_schedule_with_warmup(self.optimizer,
                                                              num_warmup_steps=self.config.warmup_steps,
                                                              num_training_steps=num_train_optimization_steps)
+            self.lr_scheduler_each_iter = True
+        elif self.config.lr_scheduler_name == "WarmCosineAnealingRestart-v2":
+            T = len(self.train_data_loader) // self.config.accumulation_steps * 20  # cycle
+            self.scheduler = CosineAnnealingWarmUpRestarts(self.optimizer, T_0=T, T_mult=1, eta_max=self.config.lr * 25,
+                                                      T_up=T // 20, gamma=0.2)
             self.lr_scheduler_each_iter = True
         elif self.config.lr_scheduler_name == "WarmCosineAnealingRestart":
             num_train_optimization_steps = self.config.num_epoch * len(self.train_data_loader) \
@@ -370,9 +375,11 @@ class Plant():
 
                 if ((tr_batch_i + 1) % self.config.accumulation_steps == 0):
                     if self.config.apex:
-                        torch.nn.utils.clip_grad_norm_(amp.master_params(self.optimizer), self.config.max_grad_norm)
+                        torch.nn.utils.clip_grad_norm_(amp.master_params(self.optimizer), max_norm=
+                        self.config.max_grad_norm, norm_type=2)
                     else:
-                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.max_grad_norm)
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.config.max_grad_norm,
+                                                       norm_type=2)
                     self.optimizer.step()
                     self.model.zero_grad()
                     # adjust lr
@@ -588,4 +595,4 @@ if __name__ == "__main__":
     qa.train_op()
     # qa.evaluate_op()
     # qa.infer_op()
-    # qa.ensemble_op(models=["efficientnet_b5", "se_resnext50"], seeds=[1996, 1997])
+    # qa.ensemble_op(models=["se_resnext50"], seeds=[1997])
