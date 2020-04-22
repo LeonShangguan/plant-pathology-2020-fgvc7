@@ -8,7 +8,8 @@ def pre_trans(x, cols, rows):
 
 class Config:
     # config settings
-    def __init__(self, fold, model_type="Resnet34", seed=2020, batch_size=16, accumulation_steps=1):
+    def __init__(self, fold, model_type="Resnet34", seed=2020, batch_size=16, accumulation_steps=1, height=384, 
+                 width=384):
         # setting
         self.reuse_model = True
         self.load_from_load_from_data_parallel = False
@@ -52,7 +53,7 @@ class Config:
         # lr scheduler, can choose to use proportion or steps
         self.lr_scheduler_name = 'WarmCosineAnealingRestart-v2'
         self.warmup_proportion = 0
-        self.warmup_steps = 0
+        self.warmup_steps = 200
         # lr
         self.lr = 4e-5
         self.weight_decay = 1e-4
@@ -70,20 +71,20 @@ class Config:
         # saving rate
         self.saving_rate = 1
         # early stopping
-        self.early_stopping = 15 / self.saving_rate
+        self.early_stopping = 10 / self.saving_rate
         # progress rate
         self.progress_rate = 1/10
         # transform
-        self.HEIGHT = 512
-        self.WIDTH = 512
+        self.height = height
+        self.WIDTH = width
         self.transforms = A.Compose([
             # Spatial-level transforms
             A.OneOf([
-                A.RandomResizedCrop(height=self.HEIGHT, width=self.WIDTH, scale=(0.6, 1.0), ratio=(0.8, 1.25), p=0.5),
-                A.CenterCrop(height=self.HEIGHT, width=self.WIDTH, p=0.5),
+                A.RandomResizedCrop(height=self.height, width=self.WIDTH, scale=(0.6, 1.0), ratio=(0.8, 1.25), p=1),
+                A.CenterCrop(height=self.height, width=self.WIDTH, p=1),
             ], p=0.5),
 
-            A.Resize(height=self.HEIGHT, width=self.WIDTH, p=1.0),
+            A.Resize(height=self.height, width=self.WIDTH, p=1.0),
 
             A.RandomRotate90(p=0.5),
             A.Transpose(p=0.5),
@@ -108,7 +109,7 @@ class Config:
 
         self.val_transforms = A.Compose([
             # Normalize, mean & std calculated by EDA. Channel BGR.
-            A.Resize(height=self.HEIGHT, width=self.WIDTH, p=1.0),
+            A.Resize(height=self.height, width=self.WIDTH, p=1.0),
             # A.Normalize(mean=(0.40379888, 0.5128721, 0.31294255), std=(0.20503741, 0.18957737, 0.1883159), p=1.0),
             A.Lambda(image=pre_trans),
             ToTensorV2(p=1.0),

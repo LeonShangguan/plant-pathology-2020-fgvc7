@@ -43,6 +43,8 @@ parser.add_argument('--model_type', type=str, default="se_resnext50", required=F
 parser.add_argument('--seed', type=int, default=2020, required=False, help="specify the seed")
 parser.add_argument('--batch_size', type=int, default=16, required=False, help="specify the batch size")
 parser.add_argument('--accumulation_steps', type=int, default=1, required=False, help="specify the accumulation_steps")
+parser.add_argument('--height', type=int, default=512, required=False, help="specify the image height")
+parser.add_argument('--width', type=int, default=512, required=False, help="specify the image width")
 
 
 ############################################################################## seed All
@@ -116,7 +118,7 @@ class Plant():
         self.epoch = 0
         self.finished = False
         self.valid_epoch = 0
-        self.train_loss, self.valid_loss, self.valid_metric_optimal = float('-inf'), float('-inf'), float('-inf')
+        self.train_loss, self.valid_loss, self.valid_metric_optimal = float('-inf'), float('-inf'), float('inf')
         self.writer = SummaryWriter()
         ############################################################################### eval setting
         self.eval_step = int(len(self.train_data_loader) * self.config.saving_rate)
@@ -490,7 +492,8 @@ class Plant():
                                           self.eval_prediction_softmax)
 
             valid_loss = valid_loss / valid_num
-            mean_eval_metric = self.eval_metrics[5]
+            # mean_eval_metric = self.eval_metrics[5]
+            mean_eval_metric = valid_loss[0]
 
             self.log.write(
                 'val loss: %f ' % (valid_loss[0]) +
@@ -502,7 +505,7 @@ class Plant():
         if self.config.lr_scheduler_name == "ReduceLROnPlateau":
             self.scheduler.step(mean_eval_metric)
 
-        if mean_eval_metric >= self.valid_metric_optimal:
+        if mean_eval_metric < self.valid_metric_optimal:
 
             self.log.write('Validation metric improved ({:.6f} --> {:.6f}).  Saving model ...'.format(
                 self.valid_metric_optimal, mean_eval_metric))
@@ -589,10 +592,10 @@ if __name__ == "__main__":
 
     # update fold
     config = Config(args.fold, model_type=args.model_type, seed=args.seed, batch_size=args.batch_size,
-                    accumulation_steps=args.accumulation_steps)
+                    accumulation_steps=args.accumulation_steps, height=args.height, width=args.width)
     seed_everything(config.seed)
     qa = Plant(config)
-    qa.train_op()
+    # qa.train_op()
     # qa.evaluate_op()
     # qa.infer_op()
-    # qa.ensemble_op(models=["se_resnext50"], seeds=[1997])
+    qa.ensemble_op(models=["efficientnet_b5", "se_resnext50", "se_resnext101"], seeds=[1996, 1997, 42])
